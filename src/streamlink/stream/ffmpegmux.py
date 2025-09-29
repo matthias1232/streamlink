@@ -6,17 +6,22 @@ import re
 import subprocess
 import sys
 import threading
-from collections.abc import Sequence
 from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
 from shutil import which
-from typing import Any, ClassVar, Generic, TextIO, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TextIO, TypeVar
 
 from streamlink import StreamError
 from streamlink.stream.stream import Stream, StreamIO
-from streamlink.utils.named_pipe import NamedPipe, NamedPipeBase
+from streamlink.utils.named_pipe import NamedPipe
 from streamlink.utils.processoutput import ProcessOutput
+
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from streamlink.utils.named_pipe import NamedPipeBase
 
 
 log = logging.getLogger(__name__)
@@ -24,10 +29,10 @@ log = logging.getLogger(__name__)
 _lock_resolve_command = threading.Lock()
 
 
-TSubstreams = TypeVar("TSubstreams", bound=Stream)
+TSubstreams_co = TypeVar("TSubstreams_co", bound=Stream, covariant=True)
 
 
-class MuxedStream(Stream, Generic[TSubstreams]):
+class MuxedStream(Stream, Generic[TSubstreams_co]):
     """
     Muxes multiple streams into one output stream.
     """
@@ -37,7 +42,7 @@ class MuxedStream(Stream, Generic[TSubstreams]):
     def __init__(
         self,
         session,
-        *substreams: TSubstreams,
+        *substreams: TSubstreams_co,
         **options,
     ):
         """
@@ -48,7 +53,7 @@ class MuxedStream(Stream, Generic[TSubstreams]):
         """
 
         super().__init__(session)
-        self.substreams: Sequence[TSubstreams] = substreams
+        self.substreams: Sequence[TSubstreams_co] = substreams
         self.subtitles: dict[str, Stream] = options.pop("subtitles", {})
         self.options: dict[str, Any] = options
 
@@ -95,6 +100,8 @@ class FFMPEGMuxer(StreamIO):
 
     errorlog: int | TextIO
 
+    process: subprocess.Popen | None
+
     @classmethod
     def is_usable(cls, session):
         return cls.command(session) is not None
@@ -138,11 +145,12 @@ class FFMPEGMuxer(StreamIO):
         return resolved
 
     @staticmethod
-    def copy_to_pipe(stream: StreamIO, pipe: NamedPipeBase):
+    def copy_to_pipe(muxer: FFMPEGMuxer, stream: StreamIO, pipe: NamedPipeBase):
         log.debug(f"Starting copy to pipe: {pipe.path}")
         # TODO: catch OSError when creating/opening pipe fails and close entire output stream
         pipe.open()
 
+        data = b""
         while True:
             try:
                 data = stream.read(8192)
@@ -157,6 +165,9 @@ class FFMPEGMuxer(StreamIO):
             try:
                 pipe.write(data)
             except OSError as err:
+                if stream.closed or not muxer.process or not muxer.process.poll():
+                    log.debug(f"Pipe copy complete: {pipe.path}")
+                    break
                 log.error(f"Error while writing to pipe {pipe.path}: {err}")
                 break
 
@@ -176,7 +187,7 @@ class FFMPEGMuxer(StreamIO):
         self.pipe_threads = [
             threading.Thread(
                 target=self.copy_to_pipe,
-                args=(stream, np),
+                args=(self, stream, np),
             )
             for stream, np in zip(self.streams, self.pipes)
         ]

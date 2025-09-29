@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from socket import AF_INET, AF_INET6
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -16,6 +15,8 @@ from streamlink.utils.url import update_scheme
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator, Mapping
+
     from streamlink.session import Streamlink
 
 
@@ -59,6 +60,10 @@ class StreamlinkOptions(Options):
           - ``UserInputRequester | None``
           - ``None``
           - Instance of ``UserInputRequester`` to collect input from the user at runtime
+        * - no-plugin-cache
+          - ``bool``
+          - ``False``
+          - Disable the plugin key-value store
         * - locale
           - ``str``
           - *system locale*
@@ -274,6 +279,7 @@ class StreamlinkOptions(Options):
     def __init__(self, session: Streamlink) -> None:
         super().__init__({
             "user-input-requester": None,
+            "no-plugin-cache": False,
             "locale": None,
             "interface": None,
             "ipv4": False,

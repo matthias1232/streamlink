@@ -7,17 +7,20 @@ import logging
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from os import getenv
 from pathlib import Path
 from pprint import pformat
-from typing import IO, Any, Literal, NewType
+from typing import IO, TYPE_CHECKING, Any, Literal, NewType
 
 # noinspection PyPackageRequirements
 import jinja2
 import requests
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Generator, Mapping
 
 
 log = logging.getLogger(__name__)
@@ -379,7 +382,7 @@ class Release:
 
     @staticmethod
     def _read_file(path: Path):
-        with open(path, "r", encoding="utf-8") as fh:
+        with path.open("r", encoding="utf-8") as fh:
             contents = fh.read()
 
         if not contents:
@@ -421,7 +424,7 @@ class Release:
                 if not asset.is_file():
                     continue
                 log.info(f"Found release asset '{asset.name}'")
-                handles[asset.name] = open(asset, "rb")
+                handles[asset.name] = asset.open("rb")
             yield handles
         finally:
             for handle in handles.values():

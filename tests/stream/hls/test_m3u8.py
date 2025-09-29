@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 import pytest
 
 from streamlink.stream.hls import (
-    M3U8,
     ByteRange,
     DateRange,
     ExtInf,
-    HLSPlaylist,
     HLSSegment,
     M3U8Parser,
     Media,
@@ -19,6 +18,10 @@ from streamlink.stream.hls import (
     parse_tag,
 )
 from tests.resources import text
+
+
+if TYPE_CHECKING:
+    from streamlink.stream.hls import M3U8, HLSPlaylist
 
 
 UTC = timezone.utc
@@ -274,7 +277,7 @@ class TestHLSPlaylist:
                 uri="http://test.se/audio/stereo/none/128kbit.m3u8",
                 type="AUDIO",
                 group_id="stereo",
-                language="dubbing",
+                language="zxx",
                 name="Dubbing",
                 default=False,
                 autoselect=True,
@@ -296,7 +299,7 @@ class TestHLSPlaylist:
                 uri="http://test.se/audio/stereo/none/128kbit.m3u8",
                 type="AUDIO",
                 group_id="surround",
-                language="dubbing",
+                language="zxx",
                 name="Dubbing",
                 default=False,
                 autoselect=True,

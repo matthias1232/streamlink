@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, cast
 from unittest.mock import ANY, AsyncMock, Mock, call
@@ -10,24 +9,26 @@ import trio
 from trio.testing import wait_all_tasks_blocked
 
 from streamlink.compat import ExceptionGroup
-from streamlink.session import Streamlink
 from streamlink.webbrowser.cdp.client import CDPClient, CDPClientSession, RequestPausedHandler
 from streamlink.webbrowser.cdp.connection import CDPConnection, CDPSession
 from streamlink.webbrowser.cdp.devtools.fetch import RequestPaused
 from streamlink.webbrowser.cdp.devtools.target import SessionID, TargetID
 from streamlink.webbrowser.cdp.exceptions import CDPError
-from tests.webbrowser.cdp import FakeWebsocketConnection
 
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from typing_extensions import TypeAlias
 
+    from streamlink.session import Streamlink
+    from tests.webbrowser.cdp import FakeWebsocketConnection
 
-TAsyncHandler: TypeAlias = "AsyncMock | Callable[[CDPClientSession, RequestPaused], Awaitable]"
+    TAsyncHandler: TypeAlias = "AsyncMock | Callable[[CDPClientSession, RequestPaused], Awaitable]"
 
 
 def async_handler(*args, **kwargs):
-    return cast(TAsyncHandler, AsyncMock(*args, **kwargs))
+    return cast("TAsyncHandler", AsyncMock(*args, **kwargs))
 
 
 @pytest.fixture()
@@ -452,7 +453,7 @@ class TestNavigate:
 
                 await wait_all_tasks_blocked()
                 assert websocket_connection.sent == [
-                    """{"id":0,"method":"Page.enable","sessionId":"56789"}""",
+                    """{"id":0,"method":"Page.enable","params":{},"sessionId":"56789"}""",
                 ]
 
                 await websocket_connection.sender.send(
@@ -460,7 +461,7 @@ class TestNavigate:
                 )
                 await wait_all_tasks_blocked()
                 assert websocket_connection.sent == [
-                    """{"id":0,"method":"Page.enable","sessionId":"56789"}""",
+                    """{"id":0,"method":"Page.enable","params":{},"sessionId":"56789"}""",
                     """{"id":1,"method":"Page.navigate","params":{"url":"https://foo"},"sessionId":"56789"}""",
                 ]
 
@@ -469,7 +470,7 @@ class TestNavigate:
                 )
                 await wait_all_tasks_blocked()
                 assert websocket_connection.sent == [
-                    """{"id":0,"method":"Page.enable","sessionId":"56789"}""",
+                    """{"id":0,"method":"Page.enable","params":{},"sessionId":"56789"}""",
                     """{"id":1,"method":"Page.navigate","params":{"url":"https://foo"},"sessionId":"56789"}""",
                     """{"id":2,"method":"Page.disable","sessionId":"56789"}""",
                 ]
@@ -503,7 +504,7 @@ class TestNavigate:
             """{"id":0,"method":"Runtime.evaluate","params":"""
             + """{"awaitPromise":false,"expression":"navigator.userAgent"},"sessionId":"56789"}""",
             """{"id":1,"method":"Network.setUserAgentOverride","params":{"userAgent":"A Chrome UA"},"sessionId":"56789"}""",
-            """{"id":2,"method":"Page.enable","sessionId":"56789"}""",
+            """{"id":2,"method":"Page.enable","params":{},"sessionId":"56789"}""",
             """{"id":3,"method":"Page.navigate","params":{"url":"https://foo"},"sessionId":"56789"}""",
             """{"id":4,"method":"Page.disable","sessionId":"56789"}""",
         ]
@@ -637,7 +638,7 @@ class TestNavigate:
         await wait_all_tasks_blocked()
         assert websocket_connection.sent == [
             """{"id":0,"method":"Fetch.enable","params":""" + fetch_enable_params + ""","sessionId":"56789"}""",
-            """{"id":1,"method":"Page.enable","sessionId":"56789"}""",
+            """{"id":1,"method":"Page.enable","params":{},"sessionId":"56789"}""",
         ]
         await websocket_connection.sender.send(
             """{"id":1,"result":{},"sessionId":"56789"}""",
@@ -646,7 +647,7 @@ class TestNavigate:
         await wait_all_tasks_blocked()
         assert websocket_connection.sent == [
             """{"id":0,"method":"Fetch.enable","params":""" + fetch_enable_params + ""","sessionId":"56789"}""",
-            """{"id":1,"method":"Page.enable","sessionId":"56789"}""",
+            """{"id":1,"method":"Page.enable","params":{},"sessionId":"56789"}""",
             """{"id":2,"method":"Page.navigate","params":{"url":"https://foo"},"sessionId":"56789"}""",
         ]
         await websocket_connection.sender.send(
@@ -656,7 +657,7 @@ class TestNavigate:
         await wait_all_tasks_blocked()
         assert websocket_connection.sent == [
             """{"id":0,"method":"Fetch.enable","params":""" + fetch_enable_params + ""","sessionId":"56789"}""",
-            """{"id":1,"method":"Page.enable","sessionId":"56789"}""",
+            """{"id":1,"method":"Page.enable","params":{},"sessionId":"56789"}""",
             """{"id":2,"method":"Page.navigate","params":{"url":"https://foo"},"sessionId":"56789"}""",
             """{"id":3,"method":"Page.disable","sessionId":"56789"}""",
         ]
@@ -667,7 +668,7 @@ class TestNavigate:
         await wait_all_tasks_blocked()
         assert websocket_connection.sent == [
             """{"id":0,"method":"Fetch.enable","params":""" + fetch_enable_params + ""","sessionId":"56789"}""",
-            """{"id":1,"method":"Page.enable","sessionId":"56789"}""",
+            """{"id":1,"method":"Page.enable","params":{},"sessionId":"56789"}""",
             """{"id":2,"method":"Page.navigate","params":{"url":"https://foo"},"sessionId":"56789"}""",
             """{"id":3,"method":"Page.disable","sessionId":"56789"}""",
             """{"id":4,"method":"Fetch.disable","sessionId":"56789"}""",
@@ -998,3 +999,122 @@ class TestOnFetchRequestPaused:
         assert isinstance(handler_bar.call_args_list[0][0][1], RequestPaused)
         assert mock_fail_request.call_args_list == []
         assert mock_continue_request.call_args_list == []
+
+
+class TestCookies:
+    @pytest.fixture(autouse=True)
+    def _assert_cookiejar(self, session: Streamlink):
+        yield
+        assert [
+            {
+                "name": cookie.name,
+                "value": cookie.value,
+                "domain": cookie.domain,
+                "path": cookie.path,
+                "expires": cookie.expires,
+                "secure": cookie.secure,
+            }
+            for cookie in session.http.cookies
+        ] == [
+            {
+                "name": "foo",
+                "value": "bar",
+                "domain": ".mock",
+                "path": "/path",
+                "expires": 123456789.0,
+                "secure": True,
+            },
+            {
+                "name": "one",
+                "value": "two",
+                "domain": ".other",
+                "path": "/",
+                "expires": None,
+                "secure": False,
+            },
+        ]
+
+    @pytest.mark.trio()
+    async def test_apply_cookies(
+        self,
+        session: Streamlink,
+        cdp_client_session: CDPClientSession,
+        websocket_connection: FakeWebsocketConnection,
+        nursery: trio.Nursery,
+    ):
+        session.http.cookies.set("foo", "bar", domain=".mock", path="/path", expires=123456789, secure=True)
+        session.http.cookies.set("one", "two", domain=".other", path="/", expires=None, secure=False)
+        assert dict(session.http.cookies.items()) == {"foo": "bar", "one": "two"}
+
+        nursery.start_soon(cdp_client_session.apply_cookies)
+        await wait_all_tasks_blocked()
+
+        assert websocket_connection.sent == [
+            """{"id":0,"method":"Network.setCookies","params":{"cookies":["""
+            + """{"domain":".mock","expires":123456789.0,"name":"foo","path":"/path","secure":true,"value":"bar"},"""
+            + """{"domain":".other","name":"one","path":"/","secure":false,"value":"two"}"""
+            + """]},"sessionId":"56789"}""",
+        ]
+        await websocket_connection.sender.send("""{"id":0,"result":{},"sessionId":"56789"}""")
+        await wait_all_tasks_blocked()
+
+    @pytest.mark.trio()
+    async def test_retrieve_cookies(
+        self,
+        session: Streamlink,
+        cdp_client_session: CDPClientSession,
+        websocket_connection: FakeWebsocketConnection,
+        nursery: trio.Nursery,
+    ):
+        assert dict(session.http.cookies.items()) == {}
+
+        nursery.start_soon(cdp_client_session.retrieve_cookies)
+        await wait_all_tasks_blocked()
+
+        assert websocket_connection.sent == [
+            """{"id":0,"method":"Network.getCookies","params":{},"sessionId":"56789"}""",
+        ]
+        # language=json
+        await websocket_connection.sender.send("""
+            {
+                "id": 0,
+                "result": {
+                    "cookies": [
+                        {
+                            "name": "foo",
+                            "value": "bar",
+                            "domain": ".mock",
+                            "path": "/path",
+                            "expires": 123456789.0,
+                            "size": 9999,
+                            "httpOnly": true,
+                            "secure": true,
+                            "session": false,
+                            "sameSite": "Lax",
+                            "priority": "Medium",
+                            "sameParty": false,
+                            "sourceScheme": "Secure",
+                            "sourcePort": 443
+                        },
+                        {
+                            "name": "one",
+                            "value": "two",
+                            "domain": ".other",
+                            "path": "/",
+                            "expires": -1,
+                            "size": 9999,
+                            "httpOnly": true,
+                            "secure": false,
+                            "session": false,
+                            "sameSite": "Lax",
+                            "priority": "Medium",
+                            "sameParty": false,
+                            "sourceScheme": "Secure",
+                            "sourcePort": 443
+                        }
+                    ]
+                },
+                "sessionId": "56789"
+            }
+        """)
+        await wait_all_tasks_blocked()

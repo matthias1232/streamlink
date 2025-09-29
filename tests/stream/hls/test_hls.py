@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 import itertools
+import logging
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from threading import Event
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 from unittest.mock import Mock, call, patch
 
 import freezegun
 import pytest
-import requests_mock as rm
 from requests.exceptions import InvalidSchema
 
-from streamlink.session import Streamlink
 from streamlink.stream.hls import (
     M3U8,
     HLSPlaylist,
@@ -27,6 +26,12 @@ from streamlink.stream.hls.hls import log
 from streamlink.utils.crypto import AES, pad
 from tests.mixins.stream_hls import EventedHLSStreamWorker, EventedHLSStreamWriter, Playlist, Segment, Tag, TestMixinStreamHLS
 from tests.resources import text
+
+
+if TYPE_CHECKING:
+    import requests_mock as rm
+
+    from streamlink.session import Streamlink
 
 
 EPOCH = datetime(2000, 1, 1, 0, 0, 0, 0, tzinfo=timezone.utc)
@@ -157,6 +162,13 @@ class TestHLSStream(TestMixinStreamHLS, unittest.TestCase):
         session.set_option("hls-live-edge", 3)
 
         return session
+
+    def test_thread_names(self):
+        self.subject(playlists=[Playlist(0, [Segment(0)], end=True)])
+        assert self.thread.reader.worker.name == "HLSStreamWorker-0"
+        assert self.thread.reader.writer.name == "HLSStreamWriter-0"
+        assert self.thread.reader.writer.executor._thread_name_prefix == "HLSStreamWriter-0-executor"
+        self.await_read(read_all=True)
 
     def test_playlist_end(self):
         segments = self.subject([
@@ -432,6 +444,14 @@ class TestHLSStreamWorker(TestMixinStreamHLS, unittest.TestCase):
             frozen_time.tick(targetduration)
             self.await_playlist_wait(1)
             self.await_playlist_reload(1)
+
+            # FIXME: NO-GIL
+            #   Closing only the worker thread when no new segments were queued keeps the writer thread and buffer still open,
+            #   which is why the test's reader thread keeps running until the test teardown,
+            #   but this somehow breaks the assertion down below, so close everything manually...
+            #   These tests will have to be rewritten eventually in pytest-style, without having to mock log calls.
+            self.thread.close()
+            self.thread.join(1)
 
             assert mock_log.warning.call_args_list == [call("No new segments in playlist for more than 5.00s. Stopping...")]
 
@@ -1129,8 +1149,9 @@ class TestHlsExtAudio:
         monkeypatch.setattr("streamlink.stream.hls.hls.FFMPEGMuxer.is_usable", Mock(return_value=True))
 
     @pytest.fixture(autouse=True)
-    def _playlist(self, requests_mock: rm.Mocker):
-        with text("hls/test_2.m3u8") as playlist:
+    def _playlist(self, request: pytest.FixtureRequest, requests_mock: rm.Mocker):
+        params = getattr(request, "param", {})
+        with text(params.get("playlist", "hls/test_media_language.m3u8")) as playlist:
             requests_mock.get("http://mocked/path/master.m3u8", text=playlist.read())
             yield
 
@@ -1148,8 +1169,14 @@ class TestHlsExtAudio:
     @pytest.mark.parametrize(
         ("session", "selection"),
         [
-            pytest.param({"hls-audio-select": ["en"]}, "http://mocked/path/en.m3u8", id="English"),
-            pytest.param({"hls-audio-select": ["es"]}, "http://mocked/path/es.m3u8", id="Spanish"),
+            pytest.param({"hls-audio-select": ["EN"]}, "http://mocked/path/en.m3u8", id="English-alpha2"),
+            pytest.param({"hls-audio-select": ["ENG"]}, "http://mocked/path/en.m3u8", id="English-alpha3"),
+            pytest.param({"hls-audio-select": ["English"]}, "http://mocked/path/en.m3u8", id="English-name"),
+            pytest.param({"hls-audio-select": ["English Language"]}, "http://mocked/path/en.m3u8", id="English-name-attr"),
+            pytest.param({"hls-audio-select": ["es"]}, "http://mocked/path/es.m3u8", id="Spanish-alpha2"),
+            pytest.param({"hls-audio-select": ["spa"]}, "http://mocked/path/es.m3u8", id="Spanish-alpha3"),
+            pytest.param({"hls-audio-select": ["spanish"]}, "http://mocked/path/es.m3u8", id="Spanish-name"),
+            pytest.param({"hls-audio-select": ["spanish language"]}, "http://mocked/path/es.m3u8", id="Spanish-name-attr"),
         ],
         indirect=["session"],
     )
@@ -1163,8 +1190,10 @@ class TestHlsExtAudio:
     @pytest.mark.parametrize(
         "session",
         [
-            pytest.param({"hls-audio-select": ["*"]}, id="wildcard"),
-            pytest.param({"hls-audio-select": ["en", "es"]}, id="multiple locales"),
+            pytest.param({"hls-audio-select": ["en", "es"]}, id="alpha2"),
+            pytest.param({"hls-audio-select": ["eng", "spa"]}, id="alpha3"),
+            pytest.param({"hls-audio-select": ["English", "Spanish"]}, id="name"),
+            pytest.param({"hls-audio-select": ["English language", "Spanish language"]}, id="name-attr"),
         ],
         indirect=["session"],
     )
@@ -1174,6 +1203,70 @@ class TestHlsExtAudio:
             "http://mocked/path/playlist.m3u8",
             "http://mocked/path/en.m3u8",
             "http://mocked/path/es.m3u8",
+        ]
+
+    @pytest.mark.parametrize(
+        "session",
+        [
+            pytest.param({"hls-audio-select": ["*"]}, id="wildcard"),
+        ],
+        indirect=["session"],
+    )
+    def test_wildcard(self, session: Streamlink, stream: MuxedHLSStream):
+        assert isinstance(stream, MuxedHLSStream)
+        assert [substream.url for substream in stream.substreams] == [
+            "http://mocked/path/playlist.m3u8",
+            "http://mocked/path/en.m3u8",
+            "http://mocked/path/es.m3u8",
+            "http://mocked/path/de.m3u8",
+        ]
+
+    @pytest.mark.parametrize(
+        ("session", "_playlist"),
+        [
+            pytest.param(
+                {"hls-audio-select": ["und", "qaa", "invalid"]},
+                {"playlist": "hls/test_media_language_special.m3u8"},
+                id="special-reserved-invalid",
+            ),
+            pytest.param(
+                {"hls-audio-select": ["Undetermined", "Reserved", "does NOT exist"]},
+                {"playlist": "hls/test_media_language_special.m3u8"},
+                id="name-attribute",
+            ),
+        ],
+        indirect=["session", "_playlist"],
+    )
+    def test_parse_media_language(self, caplog: pytest.LogCaptureFixture, session: Streamlink, stream: MuxedHLSStream):
+        assert isinstance(stream, MuxedHLSStream)
+        assert [substream.url for substream in stream.substreams] == [
+            "http://mocked/path/playlist.m3u8",
+            "http://mocked/path/qaa.m3u8",
+            "http://mocked/path/invalid.m3u8",
+            "http://mocked/path/und.m3u8",
+        ]
+        assert [
+            record.message
+            for record in caplog.get_records(when="setup")
+            if record.name == "streamlink.stream.hls" and record.levelno == logging.WARNING
+        ] == [
+            "Unrecognized language for media playlist: language='invalid' name='Does not exist'",
+        ]
+
+    @pytest.mark.parametrize(
+        "session",
+        [
+            pytest.param({"hls-audio-select": ["*"]}, id="names"),
+        ],
+        indirect=["session"],
+    )
+    def test_substream_names(self, session: Streamlink, stream: MuxedHLSStream):
+        assert isinstance(stream, MuxedHLSStream)
+        assert [substream.name for substream in stream.substreams] == [
+            None,
+            "audio",
+            "audio",
+            "audio",
         ]
 
 

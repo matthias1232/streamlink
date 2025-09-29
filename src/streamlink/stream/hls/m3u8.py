@@ -4,15 +4,14 @@ import logging
 import math
 import re
 from binascii import Error as BinasciiError, unhexlify
-from collections.abc import Callable, Iterator, Mapping
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
 from urllib.parse import urljoin, urlparse
 
 from isodate import ISO8601Error, parse_datetime  # type: ignore[import]
 from requests import Response
 
-from streamlink.logger import ALL, StreamlinkLogger
+from streamlink.logger import ALL
 from streamlink.stream.hls.segment import (
     ByteRange,
     DateRange,
@@ -30,6 +29,11 @@ from streamlink.stream.hls.segment import (
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator, Mapping
+    from datetime import datetime
+
+    from streamlink.logger import StreamlinkLogger
+
     try:
         from typing import Self  # type: ignore[attr-defined]
     except ImportError:
@@ -461,11 +465,14 @@ class M3U8Parser(Generic[TM3U8_co, THLSSegment_co, THLSPlaylist_co], metaclass=M
         if not mediatype or not group_id or not name:
             return
 
+        if language := attr.get("LANGUAGE"):
+            language = language.strip().lower()
+
         media = Media(
             type=mediatype,
             uri=self.uri(uri) if uri else None,
             group_id=group_id,
-            language=attr.get("LANGUAGE"),
+            language=language,
             name=name,
             default=self.parse_bool(attr.get("DEFAULT", "NO")),
             autoselect=self.parse_bool(attr.get("AUTOSELECT", "NO")),

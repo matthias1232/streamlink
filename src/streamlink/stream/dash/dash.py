@@ -4,17 +4,14 @@ import copy
 import itertools
 import logging
 from collections import defaultdict
-from collections.abc import Mapping
 from contextlib import contextmanager, suppress
-from datetime import datetime
 from time import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from requests import Response
 
 from streamlink.exceptions import PluginError, StreamError
-from streamlink.session import Streamlink
-from streamlink.stream.dash.manifest import MPD, Representation, freeze_timeline
+from streamlink.stream.dash.manifest import MPD, freeze_timeline
 from streamlink.stream.dash.segment import DASHSegment
 from streamlink.stream.ffmpegmux import FFMPEGMuxer
 from streamlink.stream.segmented import SegmentedStreamReader, SegmentedStreamWorker, SegmentedStreamWriter
@@ -22,6 +19,14 @@ from streamlink.stream.stream import Stream
 from streamlink.utils.l10n import Language
 from streamlink.utils.parse import parse_xml
 from streamlink.utils.times import now
+
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from datetime import datetime
+
+    from streamlink.session import Streamlink
+    from streamlink.stream.dash.manifest import Representation
 
 
 log = logging.getLogger(".".join(__name__.split(".")[:-1]))
@@ -183,8 +188,9 @@ class DASHStreamReader(SegmentedStreamReader[DASHSegment, Response]):
         stream: DASHStream,
         representation: Representation,
         timestamp: datetime,
+        name: str | None = None,
     ):
-        super().__init__(stream)
+        super().__init__(stream, name=name)
         self.ident = representation.ident
         self.mime_type = representation.mimeType
         self.timestamp = timestamp
@@ -265,7 +271,7 @@ class DASHStream(Stream):
         cls,
         session: Streamlink,
         url_or_manifest: str,
-        period: int = 0,
+        period: int | str = 0,
         with_video_only: bool = False,
         with_audio_only: bool = False,
         **kwargs,
@@ -275,7 +281,7 @@ class DASHStream(Stream):
 
         :param session: Streamlink session instance
         :param url_or_manifest: URL of the manifest file or an XML manifest string
-        :param period: Which MPD period to use (index number) for finding representations
+        :param period: Which MPD period to use (index number (int) or ``id`` attribute (str)) for finding representations
         :param with_video_only: Also return video-only streams, otherwise only return muxed streams
         :param with_audio_only: Also return audio-only streams, otherwise only return muxed streams
         :param kwargs: Additional keyword arguments passed to :meth:`requests.Session.request`
@@ -292,8 +298,21 @@ class DASHStream(Stream):
         video: list[Representation | None] = [None] if with_audio_only else []
         audio: list[Representation | None] = [None] if with_video_only else []
 
+        available_periods = [f"{idx}{f' (id={p.id!r})' if p.id is not None else ''}" for idx, p in enumerate(mpd.periods)]
+        log.debug(f"Available DASH periods: {', '.join(available_periods)}")
+
+        try:
+            if isinstance(period, int):
+                period_selection = mpd.periods[period]
+            else:
+                period_selection = mpd.periods_map[period]
+        except LookupError:
+            raise PluginError(
+                f"DASH period {period!r} not found. Select a valid period by index or by id attribute value.",
+            ) from None
+
         # Search for suitable video and audio representations
-        for aset in mpd.periods[period].adaptationSets:
+        for aset in period_selection.adaptationSets:
             if aset.contentProtections:
                 raise PluginError(f"{source} is protected by DRM")
             for rep in aset.representations:
@@ -384,11 +403,11 @@ class DASHStream(Stream):
         timestamp = now()
 
         if rep_video:
-            video = DASHStreamReader(self, rep_video, timestamp)
+            video = DASHStreamReader(self, rep_video, timestamp, name="video")
             log.debug(f"Opening DASH reader for: {rep_video.ident!r} - {rep_video.mimeType}")
 
         if rep_audio:
-            audio = DASHStreamReader(self, rep_audio, timestamp)
+            audio = DASHStreamReader(self, rep_audio, timestamp, name="audio")
             log.debug(f"Opening DASH reader for: {rep_audio.ident!r} - {rep_audio.mimeType}")
 
         if video and audio and FFMPEGMuxer.is_usable(self.session):

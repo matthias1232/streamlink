@@ -60,7 +60,7 @@ _Params: TypeAlias = (
 )
 _TextMapping: TypeAlias = MutableMapping[str, str]
 _HeadersUpdateMapping: TypeAlias = Mapping[str, str | bytes | None]
-_Timeout: TypeAlias = float | tuple[float, float] | tuple[float, None]
+_Timeout: TypeAlias = float | tuple[float | None, float | None]
 _Verify: TypeAlias = bool | str
 
 # END: borrowed from typeshed / types-requests
@@ -128,6 +128,7 @@ class HTTPSession(Session):
         json: Any | None = ...,
         # Streamlink stuff
         acceptable_status: _AcceptableStatus | None = ...,
+        encoding: str | None = ...,
         exception: _Exception | None = ...,
         raise_for_status: bool | None = ...,
         session: Streamlink | None = ...,
@@ -156,6 +157,7 @@ class HTTPSession(Session):
         json: Any | None = ...,
         # Streamlink stuff
         acceptable_status: _AcceptableStatus | None = ...,
+        encoding: str | None = ...,
         exception: _Exception | None = ...,
         raise_for_status: bool | None = ...,
         session: Streamlink | None = ...,
@@ -212,6 +214,7 @@ class HTTPSession(Session):
         json: Any | None = ...,
         # Streamlink stuff
         acceptable_status: _AcceptableStatus | None = ...,
+        encoding: str | None = ...,
         exception: _Exception | None = ...,
         raise_for_status: bool | None = ...,
         session: Streamlink | None = ...,
@@ -240,6 +243,7 @@ class HTTPSession(Session):
         cert: _Cert | None = ...,
         # Streamlink stuff
         acceptable_status: _AcceptableStatus | None = ...,
+        encoding: str | None = ...,
         exception: _Exception | None = ...,
         raise_for_status: bool | None = ...,
         session: Streamlink | None = ...,
@@ -268,6 +272,7 @@ class HTTPSession(Session):
         json: Any | None = ...,
         # Streamlink stuff
         acceptable_status: _AcceptableStatus | None = ...,
+        encoding: str | None = ...,
         exception: _Exception | None = ...,
         raise_for_status: bool | None = ...,
         session: Streamlink | None = ...,
@@ -296,6 +301,7 @@ class HTTPSession(Session):
         json: Any | None = ...,
         # Streamlink stuff
         acceptable_status: _AcceptableStatus | None = ...,
+        encoding: str | None = ...,
         exception: _Exception | None = ...,
         raise_for_status: bool | None = ...,
         session: Streamlink | None = ...,
@@ -324,6 +330,7 @@ class HTTPSession(Session):
         json: Any | None = ...,
         # Streamlink stuff
         acceptable_status: _AcceptableStatus | None = ...,
+        encoding: str | None = ...,
         exception: _Exception | None = ...,
         raise_for_status: bool | None = ...,
         session: Streamlink | None = ...,

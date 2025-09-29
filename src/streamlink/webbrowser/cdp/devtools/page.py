@@ -3,7 +3,7 @@
 # This file is generated from the CDP specification. If you need to make
 # changes, edit the generator and regenerate all modules.
 #
-# CDP version: v0.0.1359167
+# CDP version: v0.0.1510116
 # CDP domain: Page
 
 from __future__ import annotations
@@ -93,14 +93,14 @@ class AdFrameStatus:
 @dataclass
 class AdScriptId:
     """
-    Identifies the bottom-most script which caused the frame to be labelled
-    as an ad.
+    Identifies the script which caused a script or frame to be labelled as an
+    ad.
     """
-    #: Script Id of the bottom-most script which caused the frame to be labelled
-    #: as an ad.
+    #: Script Id of the script which caused a script or frame to be labelled as
+    #: an ad.
     script_id: runtime.ScriptId
 
-    #: Id of adScriptId's debugger.
+    #: Id of scriptId's debugger.
     debugger_id: runtime.UniqueDebuggerId
 
     def to_json(self) -> T_JSON_DICT:
@@ -114,6 +114,39 @@ class AdScriptId:
         return cls(
             script_id=runtime.ScriptId.from_json(json["scriptId"]),
             debugger_id=runtime.UniqueDebuggerId.from_json(json["debuggerId"]),
+        )
+
+
+@dataclass
+class AdScriptAncestry:
+    """
+    Encapsulates the script ancestry and the root script filterlist rule that
+    caused the frame to be labelled as an ad. Only created when ``ancestryChain``
+    is not empty.
+    """
+    #: A chain of ``AdScriptId``'s representing the ancestry of an ad script that
+    #: led to the creation of a frame. The chain is ordered from the script
+    #: itself (lower level) up to its root ancestor that was flagged by
+    #: filterlist.
+    ancestry_chain: list[AdScriptId]
+
+    #: The filterlist rule that caused the root (last) script in
+    #: ``ancestryChain`` to be ad-tagged. Only populated if the rule is
+    #: available.
+    root_script_filterlist_rule: str | None = None
+
+    def to_json(self) -> T_JSON_DICT:
+        json: T_JSON_DICT = {}
+        json["ancestryChain"] = [i.to_json() for i in self.ancestry_chain]
+        if self.root_script_filterlist_rule is not None:
+            json["rootScriptFilterlistRule"] = self.root_script_filterlist_rule
+        return json
+
+    @classmethod
+    def from_json(cls, json: T_JSON_DICT) -> AdScriptAncestry:
+        return cls(
+            ancestry_chain=[AdScriptId.from_json(i) for i in json["ancestryChain"]],
+            root_script_filterlist_rule=str(json["rootScriptFilterlistRule"]) if "rootScriptFilterlistRule" in json else None,
         )
 
 
@@ -167,11 +200,13 @@ class GatedAPIFeatures(enum.Enum):
 class PermissionsPolicyFeature(enum.Enum):
     """
     All Permissions Policy features. This enum should match the one defined
-    in third_party/blink/renderer/core/permissions_policy/permissions_policy_features.json5.
+    in services/network/public/cpp/permissions_policy/permissions_policy_features.json5.
+    LINT.IfChange(PermissionsPolicyFeature)
     """
     ACCELEROMETER = "accelerometer"
     ALL_SCREENS_CAPTURE = "all-screens-capture"
     AMBIENT_LIGHT_SENSOR = "ambient-light-sensor"
+    ARIA_NOTIFY = "aria-notify"
     ATTRIBUTION_REPORTING = "attribution-reporting"
     AUTOPLAY = "autoplay"
     BLUETOOTH = "bluetooth"
@@ -190,6 +225,7 @@ class PermissionsPolicyFeature(enum.Enum):
     CH_UA = "ch-ua"
     CH_UA_ARCH = "ch-ua-arch"
     CH_UA_BITNESS = "ch-ua-bitness"
+    CH_UA_HIGH_ENTROPY_VALUES = "ch-ua-high-entropy-values"
     CH_UA_PLATFORM = "ch-ua-platform"
     CH_UA_MODEL = "ch-ua-model"
     CH_UA_MOBILE = "ch-ua-mobile"
@@ -207,6 +243,9 @@ class PermissionsPolicyFeature(enum.Enum):
     CONTROLLED_FRAME = "controlled-frame"
     CROSS_ORIGIN_ISOLATED = "cross-origin-isolated"
     DEFERRED_FETCH = "deferred-fetch"
+    DEFERRED_FETCH_MINIMAL = "deferred-fetch-minimal"
+    DEVICE_ATTRIBUTES = "device-attributes"
+    DIGITAL_CREDENTIALS_CREATE = "digital-credentials-create"
     DIGITAL_CREDENTIALS_GET = "digital-credentials-get"
     DIRECT_SOCKETS = "direct-sockets"
     DIRECT_SOCKETS_PRIVATE = "direct-sockets-private"
@@ -215,6 +254,7 @@ class PermissionsPolicyFeature(enum.Enum):
     ENCRYPTED_MEDIA = "encrypted-media"
     EXECUTION_WHILE_OUT_OF_VIEWPORT = "execution-while-out-of-viewport"
     EXECUTION_WHILE_NOT_RENDERED = "execution-while-not-rendered"
+    FENCED_UNPARTITIONED_STORAGE_READ = "fenced-unpartitioned-storage-read"
     FOCUS_WITHOUT_USER_ACTIVATION = "focus-without-user-activation"
     FULLSCREEN = "fullscreen"
     FROBULATE = "frobulate"
@@ -227,11 +267,15 @@ class PermissionsPolicyFeature(enum.Enum):
     INTEREST_COHORT = "interest-cohort"
     JOIN_AD_INTEREST_GROUP = "join-ad-interest-group"
     KEYBOARD_MAP = "keyboard-map"
+    LANGUAGE_DETECTOR = "language-detector"
+    LANGUAGE_MODEL = "language-model"
     LOCAL_FONTS = "local-fonts"
+    LOCAL_NETWORK_ACCESS = "local-network-access"
     MAGNETOMETER = "magnetometer"
     MEDIA_PLAYBACK_WHILE_NOT_VISIBLE = "media-playback-while-not-visible"
     MICROPHONE = "microphone"
     MIDI = "midi"
+    ON_DEVICE_SPEECH_RECOGNITION = "on-device-speech-recognition"
     OTP_CREDENTIALS = "otp-credentials"
     PAYMENT = "payment"
     PICTURE_IN_PICTURE = "picture-in-picture"
@@ -241,6 +285,8 @@ class PermissionsPolicyFeature(enum.Enum):
     PRIVATE_STATE_TOKEN_REDEMPTION = "private-state-token-redemption"
     PUBLICKEY_CREDENTIALS_CREATE = "publickey-credentials-create"
     PUBLICKEY_CREDENTIALS_GET = "publickey-credentials-get"
+    RECORD_AD_AUCTION_EVENTS = "record-ad-auction-events"
+    REWRITER = "rewriter"
     RUN_AD_AUCTION = "run-ad-auction"
     SCREEN_WAKE_LOCK = "screen-wake-lock"
     SERIAL = "serial"
@@ -251,7 +297,9 @@ class PermissionsPolicyFeature(enum.Enum):
     SPEAKER_SELECTION = "speaker-selection"
     STORAGE_ACCESS = "storage-access"
     SUB_APPS = "sub-apps"
+    SUMMARIZER = "summarizer"
     SYNC_XHR = "sync-xhr"
+    TRANSLATOR = "translator"
     UNLOAD = "unload"
     USB = "usb"
     USB_UNRESTRICTED = "usb-unrestricted"
@@ -260,6 +308,7 @@ class PermissionsPolicyFeature(enum.Enum):
     WEB_PRINTING = "web-printing"
     WEB_SHARE = "web-share"
     WINDOW_MANAGEMENT = "window-management"
+    WRITER = "writer"
     XR_SPATIAL_TRACKING = "xr-spatial-tracking"
 
     def to_json(self) -> str:
@@ -475,6 +524,28 @@ class OriginTrial:
 
 
 @dataclass
+class SecurityOriginDetails:
+    """
+    Additional information about the frame document's security origin.
+    """
+    #: Indicates whether the frame document's security origin is one
+    #: of the local hostnames (e.g. "localhost") or IP addresses (IPv4
+    #: 127.0.0.0/8 or IPv6 ::1).
+    is_localhost: bool
+
+    def to_json(self) -> T_JSON_DICT:
+        json: T_JSON_DICT = {}
+        json["isLocalhost"] = self.is_localhost
+        return json
+
+    @classmethod
+    def from_json(cls, json: T_JSON_DICT) -> SecurityOriginDetails:
+        return cls(
+            is_localhost=bool(json["isLocalhost"]),
+        )
+
+
+@dataclass
 class Frame:
     """
     Information about the Frame on the page.
@@ -518,6 +589,9 @@ class Frame:
     #: Frame document's URL fragment including the '#'.
     url_fragment: str | None = None
 
+    #: Additional details about the frame document's security origin.
+    security_origin_details: SecurityOriginDetails | None = None
+
     #: If the frame failed to load, this contains the URL that could not be loaded. Note that unlike url above, this URL may contain a fragment.
     unreachable_url: str | None = None
 
@@ -541,6 +615,8 @@ class Frame:
             json["name"] = self.name
         if self.url_fragment is not None:
             json["urlFragment"] = self.url_fragment
+        if self.security_origin_details is not None:
+            json["securityOriginDetails"] = self.security_origin_details.to_json()
         if self.unreachable_url is not None:
             json["unreachableUrl"] = self.unreachable_url
         if self.ad_frame_status is not None:
@@ -562,6 +638,7 @@ class Frame:
             parent_id=FrameId.from_json(json["parentId"]) if "parentId" in json else None,
             name=str(json["name"]) if "name" in json else None,
             url_fragment=str(json["urlFragment"]) if "urlFragment" in json else None,
+            security_origin_details=SecurityOriginDetails.from_json(json["securityOriginDetails"]) if "securityOriginDetails" in json else None,
             unreachable_url=str(json["unreachableUrl"]) if "unreachableUrl" in json else None,
             ad_frame_status=AdFrameStatus.from_json(json["adFrameStatus"]) if "adFrameStatus" in json else None,
         )
@@ -1647,23 +1724,6 @@ class WebAppManifest:
         )
 
 
-class AutoResponseMode(enum.Enum):
-    """
-    Enum of possible auto-response for permission / prompt dialogs.
-    """
-    NONE = "none"
-    AUTO_ACCEPT = "autoAccept"
-    AUTO_REJECT = "autoReject"
-    AUTO_OPT_OUT = "autoOptOut"
-
-    def to_json(self) -> str:
-        return self.value
-
-    @classmethod
-    def from_json(cls, json: str) -> AutoResponseMode:
-        return cls(json)
-
-
 class NavigationType(enum.Enum):
     """
     The type of a frameNavigated event.
@@ -1763,6 +1823,7 @@ class BackForwardCacheNotRestoredReason(enum.Enum):
     BROADCAST_CHANNEL = "BroadcastChannel"
     WEB_XR = "WebXR"
     SHARED_WORKER = "SharedWorker"
+    SHARED_WORKER_MESSAGE = "SharedWorkerMessage"
     WEB_LOCKS = "WebLocks"
     WEB_HID = "WebHID"
     WEB_SHARE = "WebShare"
@@ -1787,9 +1848,9 @@ class BackForwardCacheNotRestoredReason(enum.Enum):
     INDEXED_DB_EVENT = "IndexedDBEvent"
     DUMMY = "Dummy"
     JS_NETWORK_REQUEST_RECEIVED_CACHE_CONTROL_NO_STORE_RESOURCE = "JsNetworkRequestReceivedCacheControlNoStoreResource"
-    WEB_RTC_STICKY = "WebRTCSticky"
-    WEB_TRANSPORT_STICKY = "WebTransportSticky"
-    WEB_SOCKET_STICKY = "WebSocketSticky"
+    WEB_RTC_USED_WITH_CCNS = "WebRTCUsedWithCCNS"
+    WEB_TRANSPORT_USED_WITH_CCNS = "WebTransportUsedWithCCNS"
+    WEB_SOCKET_USED_WITH_CCNS = "WebSocketUsedWithCCNS"
     SMART_CARD = "SmartCard"
     LIVE_MEDIA_STREAM_TRACK = "LiveMediaStreamTrack"
     UNLOAD_HANDLER = "UnloadHandler"
@@ -1821,6 +1882,10 @@ class BackForwardCacheNotRestoredReason(enum.Enum):
     EMBEDDER_EXTENSION_MESSAGING_FOR_OPEN_PORT = "EmbedderExtensionMessagingForOpenPort"
     EMBEDDER_EXTENSION_SENT_MESSAGE_TO_CACHED_FRAME = "EmbedderExtensionSentMessageToCachedFrame"
     REQUESTED_BY_WEB_VIEW_CLIENT = "RequestedByWebViewClient"
+    POST_MESSAGE_BY_WEB_VIEW_CLIENT = "PostMessageByWebViewClient"
+    CACHE_CONTROL_NO_STORE_DEVICE_BOUND_SESSION_TERMINATED = "CacheControlNoStoreDeviceBoundSessionTerminated"
+    CACHE_LIMIT_PRUNED_ON_MODERATE_MEMORY_PRESSURE = "CacheLimitPrunedOnModerateMemoryPressure"
+    CACHE_LIMIT_PRUNED_ON_CRITICAL_MEMORY_PRESSURE = "CacheLimitPrunedOnCriticalMemoryPressure"
 
     def to_json(self) -> str:
         return self.value
@@ -2160,12 +2225,20 @@ def disable() -> Generator[T_JSON_DICT, T_JSON_DICT, None]:
     yield cmd_dict
 
 
-def enable() -> Generator[T_JSON_DICT, T_JSON_DICT, None]:
+def enable(
+    enable_file_chooser_opened_event: bool | None = None,
+) -> Generator[T_JSON_DICT, T_JSON_DICT, None]:
     """
     Enables page domain notifications.
+
+    :param enable_file_chooser_opened_event: **(EXPERIMENTAL)** *(Optional)* If true, the ```Page.fileChooserOpened```` event will be emitted regardless of the state set by ````Page.setInterceptFileChooserDialog``` command (default: false).
     """
+    params: T_JSON_DICT = {}
+    if enable_file_chooser_opened_event is not None:
+        params["enableFileChooserOpenedEvent"] = enable_file_chooser_opened_event
     cmd_dict: T_JSON_DICT = {
         "method": "Page.enable",
+        "params": params,
     }
     yield cmd_dict
 
@@ -2258,25 +2331,25 @@ def get_app_id() -> Generator[T_JSON_DICT, T_JSON_DICT, tuple[str | None, str | 
     )
 
 
-def get_ad_script_id(
+def get_ad_script_ancestry(
     frame_id: FrameId,
-) -> Generator[T_JSON_DICT, T_JSON_DICT, AdScriptId | None]:
+) -> Generator[T_JSON_DICT, T_JSON_DICT, AdScriptAncestry | None]:
     """
 
 
     **EXPERIMENTAL**
 
     :param frame_id:
-    :returns: *(Optional)* Identifies the bottom-most script which caused the frame to be labelled as an ad. Only sent if frame is labelled as an ad and id is available.
+    :returns: *(Optional)* The ancestry chain of ad script identifiers leading to this frame's creation, along with the root script's filterlist rule. The ancestry chain is ordered from the most immediate script (in the frame creation stack) to more distant ancestors (that created the immediately preceding script). Only sent if frame is labelled as an ad and ids are available.
     """
     params: T_JSON_DICT = {}
     params["frameId"] = frame_id.to_json()
     cmd_dict: T_JSON_DICT = {
-        "method": "Page.getAdScriptId",
+        "method": "Page.getAdScriptAncestry",
         "params": params,
     }
     json = yield cmd_dict
-    return AdScriptId.from_json(json["adScriptId"]) if "adScriptId" in json else None
+    return AdScriptAncestry.from_json(json["adScriptAncestry"]) if "adScriptAncestry" in json else None
 
 
 def get_frame_tree() -> Generator[T_JSON_DICT, T_JSON_DICT, FrameTree]:
@@ -2420,7 +2493,7 @@ def navigate(
     transition_type: TransitionType | None = None,
     frame_id: FrameId | None = None,
     referrer_policy: ReferrerPolicy | None = None,
-) -> Generator[T_JSON_DICT, T_JSON_DICT, tuple[FrameId, network.LoaderId | None, str | None]]:
+) -> Generator[T_JSON_DICT, T_JSON_DICT, tuple[FrameId, network.LoaderId | None, str | None, bool | None]]:
     """
     Navigates current page to the given URL.
 
@@ -2434,6 +2507,7 @@ def navigate(
         0. **frameId** - Frame id that has navigated (or failed to navigate)
         1. **loaderId** - *(Optional)* Loader identifier. This is omitted in case of same-document navigation, as the previously committed loaderId would not change.
         2. **errorText** - *(Optional)* User friendly error message, present if and only if navigation has failed.
+        3. **isDownload** - *(Optional)* Whether the navigation resulted in a download.
     """
     params: T_JSON_DICT = {}
     params["url"] = url
@@ -2454,6 +2528,7 @@ def navigate(
         FrameId.from_json(json["frameId"]),
         network.LoaderId.from_json(json["loaderId"]) if "loaderId" in json else None,
         str(json["errorText"]) if "errorText" in json else None,
+        bool(json["isDownload"]) if "isDownload" in json else None,
     )
 
 
@@ -3158,7 +3233,7 @@ def clear_compilation_cache() -> Generator[T_JSON_DICT, T_JSON_DICT, None]:
 
 
 def set_spc_transaction_mode(
-    mode: AutoResponseMode,
+    mode: str,
 ) -> Generator[T_JSON_DICT, T_JSON_DICT, None]:
     """
     Sets the Secure Payment Confirmation transaction mode.
@@ -3169,7 +3244,7 @@ def set_spc_transaction_mode(
     :param mode:
     """
     params: T_JSON_DICT = {}
-    params["mode"] = mode.to_json()
+    params["mode"] = mode
     cmd_dict: T_JSON_DICT = {
         "method": "Page.setSPCTransactionMode",
         "params": params,
@@ -3178,7 +3253,7 @@ def set_spc_transaction_mode(
 
 
 def set_rph_registration_mode(
-    mode: AutoResponseMode,
+    mode: str,
 ) -> Generator[T_JSON_DICT, T_JSON_DICT, None]:
     """
     Extensions for Custom Handlers API:
@@ -3189,7 +3264,7 @@ def set_rph_registration_mode(
     :param mode:
     """
     params: T_JSON_DICT = {}
-    params["mode"] = mode.to_json()
+    params["mode"] = mode
     cmd_dict: T_JSON_DICT = {
         "method": "Page.setRPHRegistrationMode",
         "params": params,
@@ -3234,6 +3309,7 @@ def wait_for_debugger() -> Generator[T_JSON_DICT, T_JSON_DICT, None]:
 
 def set_intercept_file_chooser_dialog(
     enabled: bool,
+    cancel: bool | None = None,
 ) -> Generator[T_JSON_DICT, T_JSON_DICT, None]:
     """
     Intercept file chooser requests and transfer control to protocol clients.
@@ -3241,9 +3317,12 @@ def set_intercept_file_chooser_dialog(
     Instead, a protocol event ``Page.fileChooserOpened`` is emitted.
 
     :param enabled:
+    :param cancel: **(EXPERIMENTAL)** *(Optional)* If true, cancels the dialog by emitting relevant events (if any) in addition to not showing it if the interception is enabled (default: false).
     """
     params: T_JSON_DICT = {}
     params["enabled"] = enabled
+    if cancel is not None:
+        params["cancel"] = cancel
     cmd_dict: T_JSON_DICT = {
         "method": "Page.setInterceptFileChooserDialog",
         "params": params,
@@ -3438,6 +3517,41 @@ class FrameResized:
         )
 
 
+@event_class("Page.frameStartedNavigating")
+@dataclass
+class FrameStartedNavigating:
+    """
+    **EXPERIMENTAL**
+
+    Fired when a navigation starts. This event is fired for both
+    renderer-initiated and browser-initiated navigations. For renderer-initiated
+    navigations, the event is fired after ``frameRequestedNavigation``.
+    Navigation may still be cancelled after the event is issued. Multiple events
+    can be fired for a single navigation, for example, when a same-document
+    navigation becomes a cross-document navigation (such as in the case of a
+    frameset).
+    """
+    #: ID of the frame that is being navigated.
+    frame_id: FrameId
+    #: The URL the navigation started with. The final URL can be different.
+    url: str
+    #: Loader identifier. Even though it is present in case of same-document
+    #: navigation, the previously committed loaderId would not change unless
+    #: the navigation changes from a same-document to a cross-document
+    #: navigation.
+    loader_id: network.LoaderId
+    navigation_type: str
+
+    @classmethod
+    def from_json(cls, json: T_JSON_DICT) -> FrameStartedNavigating:
+        return cls(
+            frame_id=FrameId.from_json(json["frameId"]),
+            url=str(json["url"]),
+            loader_id=network.LoaderId.from_json(json["loaderId"]),
+            navigation_type=str(json["navigationType"]),
+        )
+
+
 @event_class("Page.frameRequestedNavigation")
 @dataclass
 class FrameRequestedNavigation:
@@ -3621,6 +3735,8 @@ class JavascriptDialogClosed:
     Fired when a JavaScript initiated dialog (alert, confirm, prompt, or onbeforeunload) has been
     closed.
     """
+    #: Frame id.
+    frame_id: FrameId
     #: Whether dialog was confirmed.
     result: bool
     #: User input in case of prompt.
@@ -3629,6 +3745,7 @@ class JavascriptDialogClosed:
     @classmethod
     def from_json(cls, json: T_JSON_DICT) -> JavascriptDialogClosed:
         return cls(
+            frame_id=FrameId.from_json(json["frameId"]),
             result=bool(json["result"]),
             user_input=str(json["userInput"]),
         )
@@ -3643,6 +3760,8 @@ class JavascriptDialogOpening:
     """
     #: Frame url.
     url: str
+    #: Frame id.
+    frame_id: FrameId
     #: Message that will be displayed by the dialog.
     message: str
     #: Dialog type.
@@ -3658,6 +3777,7 @@ class JavascriptDialogOpening:
     def from_json(cls, json: T_JSON_DICT) -> JavascriptDialogOpening:
         return cls(
             url=str(json["url"]),
+            frame_id=FrameId.from_json(json["frameId"]),
             message=str(json["message"]),
             type_=DialogType.from_json(json["type"]),
             has_browser_handler=bool(json["hasBrowserHandler"]),
@@ -3669,7 +3789,8 @@ class JavascriptDialogOpening:
 @dataclass
 class LifecycleEvent:
     """
-    Fired for top level page lifecycle events such as navigation, load, paint, etc.
+    Fired for lifecycle events (navigation, load, paint, etc) in the current
+    target (including local frames).
     """
     #: Id of the frame.
     frame_id: FrameId
@@ -3828,8 +3949,7 @@ class CompilationCacheProduced:
     """
     **EXPERIMENTAL**
 
-    Issued for every compilation cache generated. Is only available
-    if Page.setGenerateCompilationCache is enabled.
+    Issued for every compilation cache generated.
     """
     url: str
     #: Base64-encoded data (Encoded as a base64 string when passed over JSON)

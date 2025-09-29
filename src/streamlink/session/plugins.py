@@ -7,10 +7,8 @@ import json
 import logging
 import pkgutil
 import re
-from collections.abc import Iterator, Mapping
 from contextlib import suppress
 from pathlib import Path
-from types import ModuleType
 from typing import TYPE_CHECKING, Literal, TypedDict
 
 import streamlink.plugins
@@ -22,6 +20,9 @@ from streamlink.utils.module import exec_module, get_finder
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator, Mapping
+    from types import ModuleType
+
     try:
         from typing import TypeAlias  # type: ignore[attr-defined]
     except ImportError:
@@ -185,7 +186,7 @@ class StreamlinkPlugins:
                 continue
             mod, plugin = lookup
             if (name in self._plugins or name in self._matchers) and mod.__file__:
-                with open(mod.__file__, "rb") as fh:
+                with Path(mod.__file__).open("rb") as fh:
                     sha256 = hashlib.sha256(fh.read())
                 log.info(f"Plugin {name} is being overridden by {mod.__file__} (sha256:{sha256.hexdigest()})")
             plugins[name] = plugin
