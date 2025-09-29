@@ -5,24 +5,28 @@ import logging as _logging
 import numbers
 import re
 import warnings
-from collections.abc import Callable
 from pathlib import Path
 from string import printable
 from textwrap import dedent
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from streamlink import __version__ as streamlink_version, logger
 from streamlink.exceptions import StreamlinkDeprecationWarning
 from streamlink.options import Options
-from streamlink.plugin import Plugin
-from streamlink.session import Streamlink
-from streamlink.user_input import UserInputRequester
 from streamlink.utils.args import boolean, comma_list, comma_list_filter, filesize, keyvalue, num
 from streamlink.utils.times import hours_minutes_seconds_float
 from streamlink_cli.constants import STREAM_PASSTHROUGH
 from streamlink_cli.exceptions import StreamlinkCLIError
 from streamlink_cli.output.player import PlayerOutput
 from streamlink_cli.utils import find_default_player
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from streamlink.plugin import Plugin
+    from streamlink.session import Streamlink
+    from streamlink.user_input import UserInputRequester
 
 
 log = _logging.getLogger(__name__)
@@ -243,60 +247,6 @@ def build_parser():
         """,
     )
     general.add_argument(
-        "--plugins",
-        action="store_true",
-        help="""
-            Print a list of all currently installed plugins.
-        """,
-    )
-    general.add_argument(
-        "--plugin-dir",
-        dest="plugin_dirs",
-        metavar="DIRECTORY",
-        action="append",
-        help="""
-            Load plugins from this directory.
-
-            Can be set multiple times to load plugins from multiple directories.
-        """,
-    )
-    general.add_argument(
-        "--plugin-dirs",
-        metavar="DIRECTORY",
-        type=comma_list,
-        action="extend",
-        help="""
-            Load plugins from a list of comma-separated directories. (deprecated)
-        """,
-    )
-    general.add_argument(
-        "--show-matchers",
-        metavar="PLUGIN",
-        help="""
-            Show the list of matchers of a specific plugin (URL regex pattern with opt. priority and opt. name).
-
-            The output is a human-readable pseudo YAML format. Please use --json when reading matcher data programmatically.
-        """,
-    )
-    general.add_argument(
-        "--can-handle-url",
-        metavar="URL",
-        help="""
-            Check if Streamlink has a plugin that can handle the specified URL.
-
-            Status code is `0` on success, `1` on failure.
-
-            Useful for external scripting.
-        """,
-    )
-    general.add_argument(
-        "--can-handle-url-no-redirect",
-        metavar="URL",
-        help="""
-            Same as --can-handle-url, but without following redirects when looking up the URL.
-        """,
-    )
-    general.add_argument(
         "--config",
         action="append",
         metavar="FILENAME",
@@ -357,7 +307,7 @@ def build_parser():
 
             For verbose levels (`trace` and `all`):
 
-            Default is "[{asctime}][{name}][{levelname}] {message}".
+            Default is "[{asctime}][{threadName}][{name}][{levelname}] {message}".
 
             Otherwise:
 
@@ -412,9 +362,7 @@ def build_parser():
         "--quiet",
         action="store_true",
         help="""
-            Hide all log output.
-
-            Alias for --loglevel=none.
+            Suppress all console and log output, and also disable user prompts.
         """,
     )
     logging.add_argument(
@@ -425,6 +373,82 @@ def build_parser():
             Output JSON representations instead of the normal text output.
 
             Useful for external scripting.
+        """,
+    )
+
+    plugin = parser.add_argument_group("Plugin options")
+    plugin.add_argument(
+        "--plugins",
+        action="store_true",
+        help="""
+            Print a list of all currently installed plugins.
+        """,
+    )
+    plugin.add_argument(
+        "--show-matchers",
+        metavar="PLUGIN",
+        help="""
+            Show the list of matchers of a specific plugin (URL regex pattern with opt. priority and opt. name).
+
+            The output is a human-readable pseudo YAML format. Please use --json when reading matcher data programmatically.
+        """,
+    )
+    plugin.add_argument(
+        "--can-handle-url",
+        metavar="URL",
+        help="""
+            Check if Streamlink has a plugin that can handle the specified URL.
+
+            Status code is `0` on success, `1` on failure.
+
+            Useful for external scripting.
+        """,
+    )
+    plugin.add_argument(
+        "--can-handle-url-no-redirect",
+        metavar="URL",
+        help="""
+            Same as --can-handle-url, but without following redirects when looking up the URL.
+        """,
+    )
+    plugin.add_argument(
+        "--no-plugin-cache",
+        action="store_true",
+        default=None,
+        help="""
+            Disable I/O of the plugin key-value store.
+
+            If disabled, plugins won't be able to load or store data like cookies, authentication data, etc.
+            The data which is loaded or stored depends on each plugin implementation.
+        """,
+    )
+    plugin.add_argument(
+        "--no-plugin-sideloading",
+        action="store_true",
+        help="""
+            Disable automatic sideloading of third-party plugins from the default location.
+
+            See the plugin-sideloading documentation for where third-party plugins are loaded from.
+        """,
+    )
+    plugin.add_argument(
+        "--plugin-dir",
+        dest="plugin_dirs",
+        metavar="DIRECTORY",
+        action="append",
+        help="""
+            Load additional plugins from this directory.
+
+            Can be set multiple times to load plugins from multiple directories.
+        """,
+    )
+    plugin.add_argument(
+        "--plugin-dirs",
+        metavar="DIRECTORY",
+        type=comma_list,
+        action="extend",
+        help="""
+            Load additional plugins from a list of comma-separated directories. (deprecated)
         """,
     )
 
@@ -739,6 +763,7 @@ def build_parser():
     )
     output.add_argument(
         "--fs-safe-rules",
+        metavar="{POSIX,Windows}",
         choices=["POSIX", "Windows"],
         type=str,
         help="""
@@ -762,6 +787,15 @@ def build_parser():
         action="store_true",
         help="""
             When using --output or --record, always write to file even if it already exists (overwrite).
+        """,
+    )
+    output.add_argument(
+        "--skip",
+        action="store_true",
+        help="""
+            When using --output or --record, never write to file if it already exists (don't prompt).
+
+            Takes precedence over --force.
         """,
     )
     output.add_argument(
@@ -1435,6 +1469,7 @@ def build_parser():
 # NOTE: arguments with `action=store_{true,false}` must set `default=None`
 _ARGUMENT_TO_SESSIONOPTION: list[tuple[str, str, Callable[[Any], Any] | None]] = [
     # generic arguments
+    ("no_plugin_cache", "no-plugin-cache", None),
     ("locale", "locale", None),
     # network arguments
     ("interface", "interface", None),
@@ -1504,7 +1539,7 @@ def setup_session_options(session: Streamlink, args: argparse.Namespace):
 def setup_plugin_args(session: Streamlink, parser: ArgumentParser):
     """Adds plugin argument data to the argument parser."""
 
-    plugin_args = parser.add_argument_group("Plugin options")
+    plugin_args = parser.add_argument_group("Plugin-specific options")
     for pname, arguments in session.plugins.iter_arguments():
         group = parser.add_argument_group(pname.capitalize(), parent=plugin_args)
 

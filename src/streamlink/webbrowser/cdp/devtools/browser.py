@@ -3,7 +3,7 @@
 # This file is generated from the CDP specification. If you need to make
 # changes, edit the generator and regenerate all modules.
 #
-# CDP version: v0.0.1359167
+# CDP version: v0.0.1510116
 # CDP domain: Browser
 
 from __future__ import annotations
@@ -105,35 +105,42 @@ class Bounds:
 
 
 class PermissionType(enum.Enum):
-    ACCESSIBILITY_EVENTS = "accessibilityEvents"
+    AR = "ar"
     AUDIO_CAPTURE = "audioCapture"
-    BACKGROUND_SYNC = "backgroundSync"
+    AUTOMATIC_FULLSCREEN = "automaticFullscreen"
     BACKGROUND_FETCH = "backgroundFetch"
+    BACKGROUND_SYNC = "backgroundSync"
+    CAMERA_PAN_TILT_ZOOM = "cameraPanTiltZoom"
     CAPTURED_SURFACE_CONTROL = "capturedSurfaceControl"
     CLIPBOARD_READ_WRITE = "clipboardReadWrite"
     CLIPBOARD_SANITIZED_WRITE = "clipboardSanitizedWrite"
     DISPLAY_CAPTURE = "displayCapture"
     DURABLE_STORAGE = "durableStorage"
-    FLASH = "flash"
     GEOLOCATION = "geolocation"
+    HAND_TRACKING = "handTracking"
     IDLE_DETECTION = "idleDetection"
+    KEYBOARD_LOCK = "keyboardLock"
     LOCAL_FONTS = "localFonts"
+    LOCAL_NETWORK_ACCESS = "localNetworkAccess"
     MIDI = "midi"
     MIDI_SYSEX = "midiSysex"
     NFC = "nfc"
     NOTIFICATIONS = "notifications"
     PAYMENT_HANDLER = "paymentHandler"
     PERIODIC_BACKGROUND_SYNC = "periodicBackgroundSync"
+    POINTER_LOCK = "pointerLock"
     PROTECTED_MEDIA_IDENTIFIER = "protectedMediaIdentifier"
     SENSORS = "sensors"
-    STORAGE_ACCESS = "storageAccess"
+    SMART_CARD = "smartCard"
     SPEAKER_SELECTION = "speakerSelection"
+    STORAGE_ACCESS = "storageAccess"
     TOP_LEVEL_STORAGE_ACCESS = "topLevelStorageAccess"
     VIDEO_CAPTURE = "videoCapture"
-    VIDEO_CAPTURE_PAN_TILT_ZOOM = "videoCapturePanTiltZoom"
+    VR = "vr"
     WAKE_LOCK_SCREEN = "wakeLockScreen"
     WAKE_LOCK_SYSTEM = "wakeLockSystem"
     WEB_APP_INSTALLATION = "webAppInstallation"
+    WEB_PRINTING = "webPrinting"
     WINDOW_MANAGEMENT = "windowManagement"
 
     def to_json(self) -> str:
@@ -216,6 +223,7 @@ class BrowserCommandId(enum.Enum):
     """
     OPEN_TAB_SEARCH = "openTabSearch"
     CLOSE_TAB_SEARCH = "closeTabSearch"
+    OPEN_GLIC = "openGlic"
 
     def to_json(self) -> str:
         return self.value
@@ -290,20 +298,34 @@ class Histogram:
         )
 
 
+class PrivacySandboxAPI(enum.Enum):
+    BIDDING_AND_AUCTION_SERVICES = "BiddingAndAuctionServices"
+    TRUSTED_KEY_VALUE = "TrustedKeyValue"
+
+    def to_json(self) -> str:
+        return self.value
+
+    @classmethod
+    def from_json(cls, json: str) -> PrivacySandboxAPI:
+        return cls(json)
+
+
 def set_permission(
     permission: PermissionDescriptor,
     setting: PermissionSetting,
     origin: str | None = None,
+    embedding_origin: str | None = None,
     browser_context_id: BrowserContextID | None = None,
 ) -> Generator[T_JSON_DICT, T_JSON_DICT, None]:
     """
-    Set permission settings for given origin.
+    Set permission settings for given requesting and embedding origins.
 
     **EXPERIMENTAL**
 
     :param permission: Descriptor of permission to override.
     :param setting: Setting of the permission.
-    :param origin: *(Optional)* Origin the permission applies to, all origins if not specified.
+    :param origin: *(Optional)* Requesting origin the permission applies to, all origins if not specified.
+    :param embedding_origin: *(Optional)* Embedding origin the permission applies to. It is ignored unless the requesting origin is present and valid. If the requesting origin is provided but the embedding origin isn't, the requesting origin is used as the embedding origin.
     :param browser_context_id: *(Optional)* Context to override. When omitted, default browser context is used.
     """
     params: T_JSON_DICT = {}
@@ -311,6 +333,8 @@ def set_permission(
     params["setting"] = setting.to_json()
     if origin is not None:
         params["origin"] = origin
+    if embedding_origin is not None:
+        params["embeddingOrigin"] = embedding_origin
     if browser_context_id is not None:
         params["browserContextId"] = browser_context_id.to_json()
     cmd_dict: T_JSON_DICT = {
@@ -616,6 +640,33 @@ def set_window_bounds(
     yield cmd_dict
 
 
+def set_contents_size(
+    window_id: WindowID,
+    width: int | None = None,
+    height: int | None = None,
+) -> Generator[T_JSON_DICT, T_JSON_DICT, None]:
+    """
+    Set size of the browser contents resizing browser window as necessary.
+
+    **EXPERIMENTAL**
+
+    :param window_id: Browser window id.
+    :param width: *(Optional)* The window contents width in DIP. Assumes current width if omitted. Must be specified if 'height' is omitted.
+    :param height: *(Optional)* The window contents height in DIP. Assumes current height if omitted. Must be specified if 'width' is omitted.
+    """
+    params: T_JSON_DICT = {}
+    params["windowId"] = window_id.to_json()
+    if width is not None:
+        params["width"] = width
+    if height is not None:
+        params["height"] = height
+    cmd_dict: T_JSON_DICT = {
+        "method": "Browser.setContentsSize",
+        "params": params,
+    }
+    yield cmd_dict
+
+
 def set_dock_tile(
     badge_label: str | None = None,
     image: str | None = None,
@@ -677,6 +728,36 @@ def add_privacy_sandbox_enrollment_override(
     yield cmd_dict
 
 
+def add_privacy_sandbox_coordinator_key_config(
+    api: PrivacySandboxAPI,
+    coordinator_origin: str,
+    key_config: str,
+    browser_context_id: BrowserContextID | None = None,
+) -> Generator[T_JSON_DICT, T_JSON_DICT, None]:
+    """
+    Configures encryption keys used with a given privacy sandbox API to talk
+    to a trusted coordinator.  Since this is intended for test automation only,
+    coordinatorOrigin must be a .test domain. No existing coordinator
+    configuration for the origin may exist.
+
+    :param api:
+    :param coordinator_origin:
+    :param key_config:
+    :param browser_context_id: *(Optional)* BrowserContext to perform the action in. When omitted, default browser context is used.
+    """
+    params: T_JSON_DICT = {}
+    params["api"] = api.to_json()
+    params["coordinatorOrigin"] = coordinator_origin
+    params["keyConfig"] = key_config
+    if browser_context_id is not None:
+        params["browserContextId"] = browser_context_id.to_json()
+    cmd_dict: T_JSON_DICT = {
+        "method": "Browser.addPrivacySandboxCoordinatorKeyConfig",
+        "params": params,
+    }
+    yield cmd_dict
+
+
 @event_class("Browser.downloadWillBegin")
 @dataclass
 class DownloadWillBegin:
@@ -720,6 +801,10 @@ class DownloadProgress:
     received_bytes: float
     #: Download status.
     state: str
+    #: If download is "completed", provides the path of the downloaded file.
+    #: Depending on the platform, it is not guaranteed to be set, nor the file
+    #: is guaranteed to exist.
+    file_path: str | None
 
     @classmethod
     def from_json(cls, json: T_JSON_DICT) -> DownloadProgress:
@@ -728,4 +813,5 @@ class DownloadProgress:
             total_bytes=float(json["totalBytes"]),
             received_bytes=float(json["receivedBytes"]),
             state=str(json["state"]),
+            file_path=str(json["filePath"]) if "filePath" in json else None,
         )

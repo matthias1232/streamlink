@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import gettext
-from argparse import SUPPRESS, ArgumentError, Namespace
-from pathlib import Path
-from typing import Any
+
+# noinspection PyProtectedMember
+from argparse import SUPPRESS, ArgumentError, Namespace, _StoreConstAction, _VersionAction  # noqa: PLC2701
+from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock, call
 
 import pytest
 
 from streamlink.exceptions import StreamlinkDeprecationWarning as SDW
 from streamlink.plugin import Plugin, pluginargument
-from streamlink.session import Streamlink
 from streamlink_cli.argparser import (
     ArgumentParser,
     build_parser,
@@ -23,9 +23,39 @@ from streamlink_cli.exceptions import StreamlinkCLIError
 from streamlink_cli.main import main as streamlink_cli_main
 
 
+if TYPE_CHECKING:
+    from argparse import Action
+    from pathlib import Path
+
+    from streamlink.session import Streamlink
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc):
+    if "action" in metafunc.fixturenames:
+        # noinspection PyProtectedMember
+        metafunc.parametrize(
+            "action",
+            [
+                pytest.param(
+                    action,
+                    id=next((opt for opt in action.option_strings if opt.startswith("--")), action.dest),
+                )
+                for action in build_parser()._actions
+                if action.help != SUPPRESS
+            ],
+        )
+
+
 @pytest.fixture(scope="module")
 def parser():
     return build_parser()
+
+
+def test_metavar_or_noargumentvalue(action: Action):
+    assert (
+        action.metavar  # has an explicit metavar description
+        or isinstance(action, (_StoreConstAction, _VersionAction))  # doesn't expect a value
+    )
 
 
 class TestConfigFileArguments:
@@ -224,7 +254,7 @@ def test_setup_session_options_default_values(monkeypatch: pytest.MonkeyPatch, p
     args = parser.parse_args([])
     setup_session_options(session, args)
     assert session.options == session.options.defaults
-    assert not mock_set_option.called, "Value of unset session-option arg must be None and must not call set_option()"
+    assert mock_set_option.call_args_list == [], "Value of unset session-option arg must be None and must not call set_option()"
 
 
 @pytest.mark.parametrize(
@@ -296,18 +326,11 @@ def test_cli_main_setup_session_options(monkeypatch: pytest.MonkeyPatch, parser:
 
 
 class TestSetupPluginArgsAndOptions:
-    @pytest.fixture(autouse=True)
-    def stdin(self, monkeypatch: pytest.MonkeyPatch):
-        mock_stdin = Mock(isatty=Mock(return_value=True))
-        monkeypatch.setattr("sys.stdin", mock_stdin)
-
-        return mock_stdin
-
     @pytest.fixture()
     def console(self):
         return Mock(
             ask=Mock(return_value="answer"),
-            askpass=Mock(return_value="password"),
+            ask_password=Mock(return_value="password"),
         )
 
     @pytest.fixture()
@@ -324,7 +347,7 @@ class TestSetupPluginArgsAndOptions:
         @pluginargument("qux", help=SUPPRESS)
         # required argument with dependencies
         @pluginargument("user", required=True, requires=["pass", "captcha"])
-        # sensitive argument (using console.askpass if unset)
+        # sensitive argument (using console.ask_password if unset)
         @pluginargument("pass", sensitive=True)
         # argument with custom prompt (using console.ask if unset)
         @pluginargument("captcha", prompt="CAPTCHA code")
@@ -344,7 +367,10 @@ class TestSetupPluginArgsAndOptions:
         return session
 
     def test_setup_arguments(self, session: Streamlink, parser: ArgumentParser, plugin: type[Plugin]):
-        group_plugins = next((grp for grp in parser._action_groups if grp.title == "Plugin options"), None)  # pragma: no branch
+        group_plugins = next(
+            (grp for grp in parser._action_groups if grp.title == "Plugin-specific options"),
+            None,
+        )  # pragma: no branch
         assert group_plugins is not None, "Adds the 'Plugin options' arguments group"
         assert group_plugins in parser.NESTED_ARGUMENT_GROUPS[None], "Adds the 'Plugin options' arguments group"
 
@@ -371,7 +397,7 @@ class TestSetupPluginArgsAndOptions:
         assert options.defaults == {}
 
         assert not console.ask.called
-        assert not console.askpass.called
+        assert not console.ask_password.called
 
     def test_setup_options_no_user_input_requester(self, session: Streamlink, plugin: type[Plugin]):
         session.set_option("user-input-requester", None)
@@ -391,7 +417,7 @@ class TestSetupPluginArgsAndOptions:
         options = setup_plugin_options(session, args, "mock", plugin)
 
         assert console.ask.call_args_list == [call("CAPTCHA code: ")]
-        assert console.askpass.call_args_list == [call("Enter mock pass: ")]
+        assert console.ask_password.call_args_list == [call("Enter mock pass: ")]
 
         assert plugin.arguments
         arg_foo = plugin.arguments.get("foo-bar")
@@ -487,24 +513,14 @@ class TestSetupPluginArgsAndOptions:
             "four-b": "default",
         }
 
-    def test_setup_options_no_tty(
+    def test_setup_options_user_input_oserror(
         self,
         session: Streamlink,
         plugin: type[Plugin],
-        stdin: Mock,
+        console: Mock,
     ):
-        stdin.isatty.return_value = False
+        console.ask.side_effect = OSError("No input TTY available")
+        console.ask_password.side_effect = OSError("No input TTY available")
         with pytest.raises(StreamlinkCLIError) as exc_info:
             setup_plugin_options(session, Mock(mock_user="username", mock_pass=None, mock_qux=None), "mock", plugin)
-        assert str(exc_info.value) == "no TTY available"
-
-    def test_setup_options_no_stdin(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        session: Streamlink,
-        plugin: type[Plugin],
-    ):
-        monkeypatch.setattr("sys.stdin", None)
-        with pytest.raises(StreamlinkCLIError) as exc_info:
-            setup_plugin_options(session, Mock(mock_user="username", mock_pass=None, mock_qux=None), "mock", plugin)
-        assert str(exc_info.value) == "no TTY available"
+        assert str(exc_info.value) == "No input TTY available"

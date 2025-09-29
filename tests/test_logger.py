@@ -1,21 +1,23 @@
 from __future__ import annotations
 
 import logging
-import os
-import sys
 import warnings
-from collections.abc import Iterable
 from datetime import timezone
 from errno import EINVAL, EPIPE
 from inspect import currentframe, getframeinfo
 from io import BytesIO, TextIOWrapper
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import freezegun
 import pytest
 
 from streamlink import logger
 from streamlink.exceptions import StreamlinkDeprecationWarning, StreamlinkWarning
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 def getvalue(output: TextIOWrapper, size: int = -1):
@@ -34,8 +36,8 @@ def output(request: pytest.FixtureRequest):
 
 
 @pytest.fixture()
-def logfile(tmp_path: Path) -> str:
-    return str(tmp_path / "log.txt")
+def logfile(tmp_path: Path) -> Path:
+    return tmp_path / "log.txt"
 
 
 @pytest.fixture()
@@ -47,26 +49,25 @@ def log(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, output:
     if "logfile" in request.fixturenames:
         params["filename"] = request.getfixturevalue("logfile")
 
-    stream: TextIOWrapper | None = output
-    if not params.pop("stdout", True):
-        stream = None
-    if not params.pop("stderr", True):
-        monkeypatch.setattr("sys.stderr", None)
-
     fakeroot = logging.getLogger("streamlink.test")
 
     monkeypatch.setattr("streamlink.logger.root", fakeroot)
     monkeypatch.setattr("streamlink.utils.times.LOCAL", timezone.utc)
 
+    stream: TextIOWrapper | None = output if params.pop("stream", True) else None
     handler = logger.basicConfig(stream=stream, **params)
-    assert isinstance(handler, logging.StreamHandler)
+    if stream is None:
+        assert handler is None
+    else:
+        assert isinstance(handler, logging.StreamHandler)
 
     yield fakeroot
 
     logger.capturewarnings(False)
 
-    handler.close()
-    fakeroot.removeHandler(handler)
+    if handler:
+        handler.close()
+        fakeroot.removeHandler(handler)
     assert not fakeroot.handlers
 
 
@@ -279,27 +280,9 @@ class TestLogging:
         assert getvalue(output) == "[test][info] Bär: 🐻\n"
         assert getvalue(output_ascii) == "[test][info] B\\xe4r: \\U0001f43b\n"
 
-    @pytest.mark.parametrize(
-        "log",
-        [pytest.param({"stdout": False}, id="no-stdout")],
-        indirect=["log"],
-    )
-    def test_no_stdout(self, log: logging.Logger):
-        assert log.handlers
-        handler = log.handlers[0]
-        assert isinstance(handler, logging.StreamHandler)
-        assert handler.stream is sys.stderr
-
-    @pytest.mark.parametrize(
-        "log",
-        [pytest.param({"stdout": False, "stderr": False}, id="no-stdout-no-stderr")],
-        indirect=["log"],
-    )
-    def test_no_stdout_no_stderr(self, log: logging.Logger):
-        assert log.handlers
-        handler = log.handlers[0]
-        assert isinstance(handler, logging.FileHandler)
-        assert handler.stream.name.endswith(os.devnull)
+    @pytest.mark.parametrize("log", [pytest.param({"stream": None}, id="no-stdout")], indirect=["log"])
+    def test_no_stream(self, log: logging.Logger):
+        assert not log.handlers
 
     @pytest.mark.parametrize(
         "errno",
@@ -332,11 +315,11 @@ class TestLogging:
         assert not out
         assert not err
 
-    def test_logfile(self, logfile: str, log: logging.Logger, output: TextIOWrapper):
+    def test_logfile(self, logfile: Path, log: logging.Logger, output: TextIOWrapper):
         log.setLevel("info")
         log.info("Hello world, Γειά σου Κόσμε, こんにちは世界")  # noqa: RUF001
         log.handlers[0].flush()
-        with open(logfile, "r", encoding="utf-8") as fh:
+        with logfile.open("r", encoding="utf-8") as fh:
             assert fh.read() == "[test][info] Hello world, Γειά σου Κόσμε, こんにちは世界\n"  # noqa: RUF001
 
 

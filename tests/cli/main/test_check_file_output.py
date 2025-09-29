@@ -15,6 +15,9 @@ else:
     _BasePath = type(PurePosixPath())
 
 
+does_not_raise = nullcontext()
+
+
 # Fake PurePosixPath, with a fake is_file() method which gets mocked in the path fixture down below:
 # Can't override/extend the constructor with custom args/kwargs due to major code changes in py310
 # which are incompatible with older versions of pathlib.PurePath
@@ -46,27 +49,22 @@ def path(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest):
 @pytest.fixture()
 def prompt(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
     param = getattr(request, "param", {})
-    isatty = param.get("isatty", True)
     ask = param.get("ask", "y")
 
-    prompt = Mock(return_value=ask)
-    if param.get("no-stdin", False):
-        monkeypatch.setattr("sys.stdin", None)
-    else:
-        monkeypatch.setattr("sys.stdin.isatty", Mock(return_value=isatty))
+    prompt = Mock(side_effect=ask) if isinstance(ask, Exception) else Mock(return_value=ask)
     monkeypatch.setattr("streamlink_cli.main.console", Mock(ask=prompt))
 
     return prompt
 
 
 @pytest.mark.parametrize(
-    ("path", "force", "prompt", "exits", "log"),
+    ("path", "skip", "force", "raises", "log"),
     [
         pytest.param(
             {"exists": False},
             False,
-            {},
-            nullcontext(),
+            False,
+            does_not_raise,
             [
                 ("streamlink.cli", "info", "Writing output to\n/path/to/file"),
                 ("streamlink.cli", "debug", "Checking file output"),
@@ -75,9 +73,9 @@ def prompt(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
         ),
         pytest.param(
             {"exists": True},
+            False,
             True,
-            {},
-            nullcontext(),
+            does_not_raise,
             [
                 ("streamlink.cli", "info", "Writing output to\n/path/to/file"),
                 ("streamlink.cli", "debug", "Checking file output"),
@@ -86,41 +84,42 @@ def prompt(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
         ),
         pytest.param(
             {"exists": True},
+            True,
             False,
-            {"isatty": False},
             pytest.raises(StreamlinkCLIError),
             [
                 ("streamlink.cli", "info", "Writing output to\n/path/to/file"),
                 ("streamlink.cli", "debug", "Checking file output"),
-                ("streamlink.cli", "error", "File file already exists, use --force to overwrite it."),
+                ("streamlink.cli", "error", "File file already exists"),
             ],
-            id="exists-no-tty",
+            id="exists-skip",
         ),
         pytest.param(
             {"exists": True},
-            False,
-            {"no-stdin": True},
+            True,
+            True,
             pytest.raises(StreamlinkCLIError),
             [
                 ("streamlink.cli", "info", "Writing output to\n/path/to/file"),
                 ("streamlink.cli", "debug", "Checking file output"),
-                ("streamlink.cli", "error", "File file already exists, use --force to overwrite it."),
+                ("streamlink.cli", "error", "File file already exists"),
             ],
-            id="exists-no-stdin",
+            id="exists-skip-and-force",
         ),
     ],
-    indirect=["path", "prompt"],
+    indirect=["path"],
 )
 def test_exists(
     caplog: pytest.LogCaptureFixture,
-    path: Path,
-    force: bool,
     prompt: Mock,
-    exits: nullcontext,
+    path: Path,
+    skip: bool,
+    force: bool,
+    raises: nullcontext,
     log: list,
 ):
-    with exits:
-        output = check_file_output(path, force)
+    with raises:
+        output = check_file_output(path, skip, force)
         assert isinstance(output, _FakePath)
         assert output == PurePosixPath("/path/to/file")
 
@@ -130,22 +129,44 @@ def test_exists(
 
 @pytest.mark.parametrize("path", [pytest.param({"exists": True}, id="")], indirect=True)
 @pytest.mark.parametrize(
-    ("prompt", "exits"),
+    ("prompt", "exits", "log"),
     [
         pytest.param(
             {"ask": "y"},
-            nullcontext(),
+            does_not_raise,
+            [
+                ("streamlink.cli", "info", "Writing output to\n/path/to/file"),
+                ("streamlink.cli", "debug", "Checking file output"),
+            ],
             id="yes",
         ),
         pytest.param(
             {"ask": "n"},
             pytest.raises(StreamlinkCLIError),
+            [
+                ("streamlink.cli", "info", "Writing output to\n/path/to/file"),
+                ("streamlink.cli", "debug", "Checking file output"),
+            ],
             id="no",
         ),
         pytest.param(
             {"ask": None},
             pytest.raises(StreamlinkCLIError),
-            id="error",
+            [
+                ("streamlink.cli", "info", "Writing output to\n/path/to/file"),
+                ("streamlink.cli", "debug", "Checking file output"),
+            ],
+            id="none",
+        ),
+        pytest.param(
+            {"ask": OSError()},
+            pytest.raises(StreamlinkCLIError),
+            [
+                ("streamlink.cli", "info", "Writing output to\n/path/to/file"),
+                ("streamlink.cli", "debug", "Checking file output"),
+                ("streamlink.cli", "error", "File file already exists, use --force to overwrite it or --skip this prompt"),
+            ],
+            id="oserror",
         ),
     ],
     indirect=["prompt"],
@@ -155,14 +176,12 @@ def test_prompt(
     path: Path,
     prompt: Mock,
     exits: nullcontext,
+    log: list,
 ):
     with exits:
-        output = check_file_output(path, False)
+        output = check_file_output(path, False, False)
         assert isinstance(output, _FakePath)
         assert output == PurePosixPath("/path/to/file")
 
-    assert [(record.name, record.levelname, record.message) for record in caplog.records] == [
-        ("streamlink.cli", "info", "Writing output to\n/path/to/file"),
-        ("streamlink.cli", "debug", "Checking file output"),
-    ]
+    assert [(record.name, record.levelname, record.message) for record in caplog.records] == log
     assert prompt.call_args_list == [call("File file already exists! Overwrite it? [y/N] ")]

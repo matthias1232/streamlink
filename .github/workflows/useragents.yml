@@ -13,12 +13,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
       - run: python -m pip install requests
       - run: python ./script/update-user-agents.py
         env:
           WHATISMYBROWSER_API_KEY: ${{ secrets.WHATISMYBROWSER_API_KEY }}
-      - uses: peter-evans/create-pull-request@0c2a66fe4af462aa0761939bd32efbdd46592737
+      - uses: peter-evans/create-pull-request@0f2a09222f84e1d0d078fdec150cbe3ff4c5b799
         with:
           token: ${{ secrets.STREAMLINKBOT_USERAGENTS_PR }}
           add-paths: |

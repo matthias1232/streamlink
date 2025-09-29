@@ -5,23 +5,24 @@ import logging
 import math
 import re
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import timedelta
 from itertools import count, repeat
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeVar, overload
 from urllib.parse import urljoin, urlparse, urlunparse
 
 from isodate import Duration, parse_datetime, parse_duration  # type: ignore[import]
 
-# noinspection PyProtectedMember
-from lxml.etree import _Attrib, _Element
-
 from streamlink.stream.dash.segment import DASHSegment, TimelineSegment
 from streamlink.utils.times import UTC, fromtimestamp, now
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator, Sequence
+    from datetime import datetime
+
+    # noinspection PyProtectedMember
+    from lxml.etree import _Attrib, _Element
     from typing_extensions import TypeAlias
 
 
@@ -365,6 +366,7 @@ class MPD(MPDNode):
 
         self.baseURLs = self.children(BaseURL)
         self.periods = self.children(Period, minimum=1)
+        self.periods_map = {period.id: period for period in self.periods if period.id is not None}
         self.programInformation = self.children(ProgramInformation)
 
     def get_representation(self, ident: TTimelineIdent) -> Representation | None:

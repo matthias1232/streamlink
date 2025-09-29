@@ -4,11 +4,11 @@ import re
 import ssl
 import time
 import warnings
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests.adapters
 import urllib3
-from requests import PreparedRequest, Request, Session
+from requests import Request, Session
 from requests.adapters import HTTPAdapter
 
 import streamlink.session.http_useragents as useragents
@@ -22,6 +22,10 @@ try:
 except ImportError:  # pragma: no cover
     # urllib3 <2.0.0 compat import
     from urllib3.util.ssl_ import create_urllib3_context
+
+
+if TYPE_CHECKING:
+    from requests import PreparedRequest
 
 
 # urllib3>=2.0.0: enforce_content_length now defaults to True (keep the override for backwards compatibility)
@@ -91,7 +95,7 @@ class HTTPSession(Session):
     def __init__(self):
         super().__init__()
 
-        self.headers["User-Agent"] = useragents.FIREFOX
+        self.headers["User-Agent"] = useragents.DEFAULT
         self.timeout = 20.0
 
         self.mount("file://", FileAdapter())
@@ -155,6 +159,7 @@ class HTTPSession(Session):
 
     def request(self, method, url, *args, **kwargs):
         acceptable_status = kwargs.pop("acceptable_status", [])
+        encoding = kwargs.pop("encoding", None)
         exception = kwargs.pop("exception", PluginError)
         headers = kwargs.pop("headers", {})
         params = kwargs.pop("params", {})
@@ -198,6 +203,9 @@ class HTTPSession(Session):
                 # back off retrying, but only to a maximum sleep time
                 delay = min(retry_max_backoff, retry_backoff * (2 ** (retries - 1)))
                 time.sleep(delay)
+
+        if encoding is not None:
+            res.encoding = encoding
 
         if schema:
             res = schema.validate(res.text, name="response text", exception=PluginError)

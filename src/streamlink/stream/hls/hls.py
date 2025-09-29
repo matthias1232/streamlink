@@ -3,28 +3,41 @@ from __future__ import annotations
 import logging
 import re
 import struct
-from collections.abc import Mapping
-from concurrent.futures import Future
-from datetime import datetime, timedelta
-from typing import Any, ClassVar
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from urllib.parse import urlparse
 
 from requests import Response
 from requests.exceptions import ChunkedEncodingError, ConnectionError, ContentDecodingError, InvalidSchema  # noqa: A004
 
-from streamlink.buffers import RingBuffer
 from streamlink.exceptions import StreamError
-from streamlink.session import Streamlink
 from streamlink.stream.ffmpegmux import FFMPEGMuxer, MuxedStream
 from streamlink.stream.filtered import FilteredStream
-from streamlink.stream.hls.m3u8 import M3U8, M3U8Parser, parse_m3u8
-from streamlink.stream.hls.segment import ByteRange, HLSPlaylist, HLSSegment, Key, Map, Media
+from streamlink.stream.hls.m3u8 import M3U8Parser, parse_m3u8
+from streamlink.stream.hls.segment import HLSSegment
 from streamlink.stream.http import HTTPStream
 from streamlink.stream.segmented import SegmentedStreamReader, SegmentedStreamWorker, SegmentedStreamWriter
 from streamlink.utils.cache import LRUCache
 from streamlink.utils.crypto import AES, unpad
 from streamlink.utils.formatter import Formatter
+from streamlink.utils.l10n import Language
 from streamlink.utils.times import now
+
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from concurrent.futures import Future
+    from datetime import datetime
+
+    from streamlink.buffers import RingBuffer
+    from streamlink.session import Streamlink
+    from streamlink.stream.hls.m3u8 import M3U8
+    from streamlink.stream.hls.segment import ByteRange, HLSPlaylist, Key, Map, Media
+
+    try:
+        from typing import Self  # type: ignore[attr-defined]
+    except ImportError:
+        from typing_extensions import Self
 
 
 log = logging.getLogger(".".join(__name__.split(".")[:-1]))
@@ -536,7 +549,7 @@ class HLSStreamReader(FilteredStream, SegmentedStreamReader[HLSSegment, Response
     stream: HLSStream
     buffer: RingBuffer
 
-    def __init__(self, stream: HLSStream):
+    def __init__(self, stream: HLSStream, name: str | None = None):
         self.request_params = dict(stream.args)
         # These params are reserved for internal use
         self.request_params.pop("exception", None)
@@ -544,10 +557,13 @@ class HLSStreamReader(FilteredStream, SegmentedStreamReader[HLSSegment, Response
         self.request_params.pop("timeout", None)
         self.request_params.pop("url", None)
 
-        super().__init__(stream)
+        super().__init__(stream, name=name)
 
 
-class MuxedHLSStream(MuxedStream["HLSStream"]):
+TMuxedHLSStream_co = TypeVar("TMuxedHLSStream_co", bound="HLSStream", covariant=True)
+
+
+class MuxedHLSStream(MuxedStream[TMuxedHLSStream_co]):
     """
     Muxes multiple HLS video and audio streams into one output stream.
     """
@@ -561,6 +577,7 @@ class MuxedHLSStream(MuxedStream["HLSStream"]):
         audio: str | list[str],
         audio_lang: str | list[str],
         hlsstream: type[HLSStream] | None = None,
+        hlsstream: type[TMuxedHLSStream_co] | None = None,
         url_master: str | None = None,
         multivariant: M3U8 | None = None,
         force_restart: bool = False,
@@ -588,8 +605,12 @@ class MuxedHLSStream(MuxedStream["HLSStream"]):
                 tracks.append(audio)
         maps.extend(f"{i}:a" for i in range(1, len(tracks)))
 
-        hlsstream = hlsstream or HLSStream
-        substreams = [hlsstream(session, url, force_restart=force_restart, **kwargs) for url in tracks]
+        # https://github.com/python/mypy/issues/18017
+        TStream: type[TMuxedHLSStream_co] = hlsstream if hlsstream is not None else HLSStream  # type: ignore[assignment]
+        substreams = [
+            TStream(session, url, force_restart=force_restart, name=None if idx == 0 else "audio", **kwargs)
+            for idx, url in enumerate(tracks)
+        ]
         ffmpeg_options = ffmpeg_options or {}
 
         super().__init__(session, *substreams, format="mpegts", maps=maps, audio_lang=audio_lang, **ffmpeg_options)
@@ -616,7 +637,7 @@ class HLSStream(HTTPStream):
     """
 
     __shortname__ = "hls"
-    __reader__ = HLSStreamReader
+    __reader__: ClassVar[type[HLSStreamReader]] = HLSStreamReader
     __parser__: ClassVar[type[M3U8Parser[M3U8[HLSSegment, HLSPlaylist], HLSSegment, HLSPlaylist]]] = M3U8Parser
 
     def __init__(
@@ -625,6 +646,7 @@ class HLSStream(HTTPStream):
         url: str,
         url_master: str | None = None,
         multivariant: M3U8 | None = None,
+        name: str | None = None,
         force_restart: bool = False,
         start_offset: float = 0,
         duration: float | None = None,
@@ -635,6 +657,7 @@ class HLSStream(HTTPStream):
         :param url: The URL of the HLS playlist
         :param url_master: The URL of the HLS playlist's multivariant playlist (deprecated)
         :param multivariant: The parsed multivariant playlist
+        :param name: Optional name suffix for the stream's worker and writer threads
         :param force_restart: Start from the beginning after reaching the playlist's end
         :param start_offset: Number of seconds to be skipped from the beginning
         :param duration: Number of seconds until ending the stream
@@ -644,6 +667,7 @@ class HLSStream(HTTPStream):
         super().__init__(session, url, **kwargs)
         self._url_master = url_master
         self.multivariant = multivariant if multivariant and multivariant.is_master else None
+        self.name = name
         self.force_restart = force_restart
         self.start_offset = start_offset
         self.duration = duration
@@ -678,7 +702,7 @@ class HLSStream(HTTPStream):
         return self.session.http.prepare_new_request(**args).url
 
     def open(self):
-        reader = self.__reader__(self)
+        reader = self.__reader__(self, name=self.name)
         reader.open()
 
         return reader
@@ -703,7 +727,7 @@ class HLSStream(HTTPStream):
         start_offset: float = 0,
         duration: float | None = None,
         **kwargs,
-    ) -> dict[str, HLSStream | MuxedHLSStream]:
+    ) -> dict[str, Self | MuxedHLSStream[Self]]:
         """
         Parse a variant playlist and return its streams.
 
@@ -721,7 +745,19 @@ class HLSStream(HTTPStream):
         """
 
         locale = session.localization
-        audio_select = session.options.get("hls-audio-select")
+        hls_audio_select = session.options.get("hls-audio-select")
+        audio_select_any: bool = "*" in hls_audio_select
+        audio_select_langs: list[Language] = []
+        audio_select_codes: list[str] = []
+
+        for item in hls_audio_select:
+            item = item.strip().lower()
+            if item == "*":
+                continue
+            try:
+                audio_select_langs.append(Language.get(item))
+            except LookupError:
+                audio_select_codes.append(item)
 
         request_args = session.http.valid_request_args(**kwargs)
         res = cls._fetch_variant_playlist(session, url, **request_args)
@@ -761,20 +797,33 @@ class HLSStream(HTTPStream):
 
                 # if the media is "autoselect" and it better matches the users preferences, use that
                 # instead of default
-                if not default_audio and (media.autoselect and locale.equivalent(language=media.language)):
+                if not default_audio and (media.autoselect and locale.equivalent(language=media.parsed_language)):
                     default_audio = [media]
 
                 # select the first audio stream that matches the user's explict language selection
                 if (
-                    (
-                        "*" in audio_select
-                        or media.language in audio_select
-                        or media.name in audio_select
+                    # user has selected all languages
+                    audio_select_any
+                    # compare plain language codes first
+                    or (
+                        media.language is not None
+                        and media.language in audio_select_codes
                     )
+                    # then compare parsed language codes and user input
+                    or (
+                        media.parsed_language is not None
+                        and media.parsed_language in audio_select_langs
+                    )
+                    # then compare media name attribute
+                    or (
+                        media.name
+                        and media.name.lower() in audio_select_codes
+                    )
+                    # fallback: find first media playlist matching the user's locale
                     or (
                         (not preferred_audio or media.default)
                         and locale.explicit
-                        and locale.equivalent(language=media.language)
+                        and locale.equivalent(language=media.parsed_language)
                     )
                 ):  # fmt: skip
                     preferred_audio.append(media)

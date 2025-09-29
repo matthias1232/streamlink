@@ -79,12 +79,14 @@ be installed separately.
 
 .. code-block:: bash
 
-    # install additional dependencies
-    pip install -U -r dev-requirements.txt
-    pip install -U -r docs-requirements.txt
+    # upgrade to the latest version of pip
+    python -m pip install -U pip
 
     # install Streamlink in "editable" mode
-    pip install -e .
+    python -m pip install -U --upgrade-strategy=eager -e .
+
+    # install additional dependencies (see pyproject.toml for individual dependency groups)
+    python -m pip install -U --upgrade-strategy=eager --group all
 
     # validate that Streamlink is working
     streamlink --loglevel=debug
@@ -122,7 +124,7 @@ performing these checks locally avoids unnecessary build failures.
 Code style
 ----------
 
-Streamlink uses `Ruff`_ as primary code `linting <Ruff-linter>`_ and `formatting <Ruff-formatter>`_ tool.
+Streamlink uses `Ruff`_ as primary code `linting <Ruff-linter_>`_ and `formatting <Ruff-formatter_>`_ tool.
 
 The project aims to use best practices for achieving great code readability with minimal git diffs,
 as detailed in :pep:`8` and implemented in related linting and formatting tools, such as `Black`_.
