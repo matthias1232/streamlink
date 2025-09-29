@@ -576,7 +576,7 @@ class MuxedHLSStream(MuxedStream[TMuxedHLSStream_co]):
         video: str,
         audio: str | list[str],
         audio_lang: str | list[str],
-        hlsstream: type[HLSStream] | None = None,
+        #hlsstream: type[HLSStream] | None = None,
         hlsstream: type[TMuxedHLSStream_co] | None = None,
         url_master: str | None = None,
         multivariant: M3U8 | None = None,
